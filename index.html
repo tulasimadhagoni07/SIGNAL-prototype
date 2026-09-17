@@ -347,7 +347,7 @@ main {
 }
 .model-box {
   position: relative;
-  background: #000000;
+  background: #ffffff;
   border-radius: var(--radius);
   overflow: hidden;
   height: 480px;
@@ -355,6 +355,26 @@ main {
   align-items: center;
   justify-content: center;
 }
+.model-viewer {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.model-viewer canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.organ-reference {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: none;
+}
+.model-box.show-organ-reference #viewer { display: none; }
+.model-box.show-organ-reference .organ-reference { display: block; }
+.model-box.show-organ-reference .anatomy-site-label,
+.model-box.show-organ-reference .anatomy-markup { display: none; }
 .body-img {
   width: 100%;
   height: 100%;
@@ -380,6 +400,8 @@ main {
 
 .pathology-callout {
   position: absolute;
+  left: auto !important;
+  right: 18px;
   background: rgba(15, 23, 42, 0.92);
   border: 1px solid rgba(255,255,255,0.25);
   backdrop-filter: blur(8px);
@@ -391,6 +413,51 @@ main {
   z-index: 20;
   box-shadow: 0 4px 16px rgba(0,0,0,0.5);
   transition: all 0.25s ease;
+}
+.anatomy-site-label {
+  position: absolute;
+  top: 32%;
+  left: 22%;
+  max-width: 190px;
+  padding: 6px 9px;
+  border: 1px solid rgba(37, 99, 235, 0.35);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.94);
+  color: #0f4c81;
+  box-shadow: 0 3px 12px rgba(15, 76, 129, 0.16);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.2px;
+  z-index: 18;
+  pointer-events: none;
+}
+.anatomy-markup {
+  position: absolute;
+  top: 32%;
+  left: 68%;
+  width: 18px;
+  height: 18px;
+  border: 2px solid #dc2626;
+  background: #dc2626;
+  border-radius: 50%;
+  box-shadow: 0 0 0 4px rgba(220, 38, 38, 0.16);
+  transform: translate(-50%, -50%);
+  z-index: 19;
+  pointer-events: none;
+  animation: anatomyMarkerBlink 1.2s ease-in-out infinite;
+}
+@keyframes anatomyMarkerBlink {
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 4px rgba(220, 38, 38, 0.16); }
+  50% { opacity: 0.42; box-shadow: 0 0 0 9px rgba(220, 38, 38, 0.04); }
+}
+.anatomy-markup::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 100%;
+  width: 62px;
+  height: 1px;
+  background: #dc2626;
 }
 .callout-title { font-weight: 800; font-size: 12px; color: #60a5fa; margin-bottom: 2px; }
 .callout-diag { font-weight: 600; font-size: 11px; color: #f8fafc; margin-bottom: 4px; }
@@ -908,14 +975,14 @@ main {
   <section class="diagnostic-view">
     <div class="model-box">
       <div class="model-controls">
-        <span class="tab-pill">Coronal Dual View</span>
-        <button class="tab-pill" onclick="toggleHires()" id="hiresToggleBtn">View High-Res 3D Model</button>
+        <button class="tab-pill" id="hiresToggleBtn">Auto-Rotate 3D Model</button>
+        <button class="tab-pill" id="organViewBtn">View Organ Anatomy</button>
       </div>
 
-      <img id="bodyDisplayImg" src="assets/body_3d_crop.png" class="body-img" alt="3D Anatomical Body View">
-
-      <!-- Dynamic Pathology Hotspot -->
-      <div class="pulse-indicator" id="pathologyPulse" style="top:32%; left:33.5%;"></div>
+      <div id="viewer" class="model-viewer" aria-label="Interactive 3D muscular anatomy model"></div>
+      <img class="organ-reference" src="assets/holographic_body_hires.jpg" alt="Organ anatomy reference view">
+      <div class="anatomy-site-label" id="anatomySiteLabel">SITE: RIGHT APICAL LUNG</div>
+      <div class="anatomy-markup" id="anatomyMarkup" aria-label="Disease location markup"></div>
 
       <!-- Floating Pathology Callout Tag -->
       <div class="pathology-callout" id="pathologyCallout" style="top:25px; left:36%;">
@@ -1055,6 +1122,14 @@ main {
   </section>
 </main>
 
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js"
+  }
+}
+</script>
+<script type="module" src="./script.js"></script>
 <script>
 // COMPLETE JURISDICTIONAL EVIDENCE DATABASE
 const CASES = {
@@ -1412,12 +1487,30 @@ function loadCase(key) {
   const activeBtn = document.getElementById("btn-" + key);
   if (activeBtn) activeBtn.classList.add("active");
 
-  // 2. Update Anatomical Body Hotspot & Callout
-  const pulse = document.getElementById("pathologyPulse");
+  // 2. Update Anatomical Body Callout
   const callout = document.getElementById("pathologyCallout");
-  pulse.style.top = c.pulseTop;
-  pulse.style.left = c.pulseLeft;
-  pulse.style.display = c.isReportable ? "block" : "none";
+  const siteLabel = document.getElementById("anatomySiteLabel");
+  const markup = document.getElementById("anatomyMarkup");
+  const organText = c.organ.toLowerCase();
+  let site = { text: c.organ, key: "lungs" };
+  if (organText.includes("heart") || organText.includes("cardiac")) {
+    site = { text: "SITE: HEART", key: "heart" };
+  } else if (organText.includes("lung") || organText.includes("trache") || organText.includes("bronch")) {
+    site = { text: "SITE: LUNGS", key: "lungs" };
+  } else if (organText.includes("palm") || organText.includes("sole") || organText.includes("hand")) {
+    site = { text: "SITE: PALM / HAND", key: "palm" };
+  } else if (organText.includes("face") || organText.includes("buccal") || organText.includes("oral") || organText.includes("oropharynx")) {
+    site = { text: "SITE: FACE / ORAL CAVITY", key: "face" };
+  } else if (organText.includes("liver") || organText.includes("hepatic")) {
+    site = { text: "SITE: LIVER", key: "liver" };
+  }
+  if (siteLabel) {
+    siteLabel.textContent = site.text;
+  }
+  if (markup) {
+    markup.title = `${c.condition}: ${c.organ}`;
+  }
+  window.dispatchEvent(new CustomEvent("anatomy-site-change", { detail: { key: site.key, text: site.text, condition: c.condition, organ: c.organ } }));
 
   callout.style.top = c.calloutTop;
   callout.style.left = c.calloutLeft;
@@ -2692,15 +2785,6 @@ function printOfficialStateForm() {
 let isHiresView = false;
 function toggleHires() {
   isHiresView = !isHiresView;
-  const img = document.getElementById("bodyDisplayImg");
-  const btn = document.getElementById("hiresToggleBtn");
-  if (isHiresView) {
-    img.src = "assets/holographic_body_hires.jpg";
-    btn.textContent = "View Standard 3D Model";
-  } else {
-    img.src = "assets/body_3d_crop.png";
-    btn.textContent = "View High-Res 3D Model";
-  }
 }
 
 function simulateTransmission() {
